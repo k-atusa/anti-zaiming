@@ -1,6 +1,12 @@
 # goodbye-ai-block
 
-Obfuscate images and text to bypass censorship. Browser extension auto-decodes on page visit.
+Obfuscate images and text to bypass censorship and prevent unauthorized scraping by AI crawlers, with automatic decryption via browser extension.
+
+## Key Features
+
+- **Bypass Censorship**: Obfuscate text and images to bypass automated censorship and filtering systems.
+- **Prevent Scraping & AI Training**: By publishing content in an obfuscated format, you prevent crawlers and AI bots from scraping or training on your original content.
+- **User Convenience**: Recipients with the browser extension installed can automatically view the decrypted content without any manual steps.
 
 ## Structure
 
