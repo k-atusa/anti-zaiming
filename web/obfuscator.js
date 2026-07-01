@@ -55,109 +55,29 @@ const AZ = (() => {
     return inv;
   }
 
-  // -- Block pixel I/O --
+  // -- Block Transform Utilities (32-bit, 1-pass) --
+  const IS_LE = new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44;
+  const INV_MASK = IS_LE ? 0x00FFFFFF : 0xFFFFFF00;
 
-  // Extract BxB block from grid.
-  function getBlock(data, w, bx, by, B) {
-    const px = new Uint8Array(B * B * 4);
-    for (let y = 0; y < B; y++)
-      for (let x = 0; x < B; x++) {
-        const si = ((by * B + y) * w + bx * B + x) * 4;
-        const di = (y * B + x) * 4;
-        px[di] = data[si]; px[di + 1] = data[si + 1];
-        px[di + 2] = data[si + 2]; px[di + 3] = data[si + 3];
-      }
+  function applyColorTransform(px, inv, ch) {
+    if (inv) px ^= INV_MASK;
+    if (ch === 1) {
+      return IS_LE
+        ? (px & 0xFF000000) | ((px >> 8) & 0x0000FFFF) | ((px << 16) & 0x00FF0000)
+        : (px & 0x000000FF) | ((px << 8) & 0xFFFF0000) | ((px >> 16) & 0x0000FF00);
+    } else if (ch === 2) {
+      return IS_LE
+        ? (px & 0xFF000000) | ((px << 8) & 0x00FFFF00) | ((px >> 16) & 0x000000FF)
+        : (px & 0x000000FF) | ((px >> 8) & 0x00FFFF00) | ((px << 16) & 0xFF000000);
+    }
     return px;
   }
 
-  // Write BxB block into grid.
-  function putBlock(data, w, bx, by, px, B) {
-    for (let y = 0; y < B; y++)
-      for (let x = 0; x < B; x++) {
-        const di = ((by * B + y) * w + bx * B + x) * 4;
-        const si = (y * B + x) * 4;
-        data[di] = px[si]; data[di + 1] = px[si + 1];
-        data[di + 2] = px[si + 2]; data[di + 3] = px[si + 3];
-      }
-  }
-
-  // -- Block transforms --
-
-  // Invert RGB channels.
-  function invertColors(px) {
-    const out = new Uint8Array(px.length);
-    for (let i = 0; i < px.length; i += 4) {
-      out[i] = 255 - px[i]; out[i + 1] = 255 - px[i + 1];
-      out[i + 2] = 255 - px[i + 2]; out[i + 3] = px[i + 3];
-    }
-    return out;
-  }
-
-  // Rotate RGB channels.
-  function rotateChannels(px, rot) {
-    if (rot === 0) return px;
-    const out = new Uint8Array(px.length);
-    for (let i = 0; i < px.length; i += 4) {
-      if (rot === 1) { out[i] = px[i + 1]; out[i + 1] = px[i + 2]; out[i + 2] = px[i]; }
-      else { out[i] = px[i + 2]; out[i + 1] = px[i]; out[i + 2] = px[i + 1]; }
-      out[i + 3] = px[i + 3];
-    }
-    return out;
-  }
-
-  // Reverse RGB rotation.
-  function unrotateChannels(px, rot) {
-    if (rot === 0) return px;
-    return rotateChannels(px, rot === 1 ? 2 : 1);
-  }
-
-  // Rotate block spatially.
-  function rotateSpatial(px, times, B) {
-    times = ((times % 4) + 4) % 4;
-    if (times === 0) return px;
-    let cur = px;
-    for (let t = 0; t < times; t++) {
-      const out = new Uint8Array(cur.length);
-      for (let y = 0; y < B; y++)
-        for (let x = 0; x < B; x++) {
-          const si = (y * B + x) * 4, di = (x * B + (B - 1 - y)) * 4;
-          out[di] = cur[si]; out[di + 1] = cur[si + 1];
-          out[di + 2] = cur[si + 2]; out[di + 3] = cur[si + 3];
-        }
-      cur = out;
-    }
-    return cur;
-  }
-
-  // Flip block horizontally.
-  function flipH(px, B) {
-    const out = new Uint8Array(px.length);
-    for (let y = 0; y < B; y++)
-      for (let x = 0; x < B; x++) {
-        const si = (y * B + x) * 4, di = (y * B + (B - 1 - x)) * 4;
-        out[di] = px[si]; out[di + 1] = px[si + 1];
-        out[di + 2] = px[si + 2]; out[di + 3] = px[si + 3];
-      }
-    return out;
-  }
-
-  // Apply combined transform.
-  function applyTransform(px, t, B) {
+  function reverseColorTransform(px, inv, ch) {
     let p = px;
-    if (t.inv) p = invertColors(p);
-    p = rotateChannels(p, t.ch);
-    p = rotateSpatial(p, t.sp, B);
-    if (t.fl) p = flipH(p, B);
-    return p;
-  }
-
-  // Reverse combined transform.
-  function reverseTransform(px, t, B) {
-    let p = px;
-    if (t.fl) p = flipH(p, B);
-    p = rotateSpatial(p, (4 - t.sp) % 4, B);
-    p = unrotateChannels(p, t.ch);
-    if (t.inv) p = invertColors(p);
+    if (ch === 1) p = applyColorTransform(p, false, 2);
+    else if (ch === 2) p = applyColorTransform(p, false, 1);
+    if (inv) p ^= INV_MASK;
     return p;
   }
 
@@ -265,18 +185,35 @@ const AZ = (() => {
 
     const perm = shuffle(n, rng);
 
-    // Transform blocks.
-    const blocks = [];
-    for (let i = 0; i < n; i++) {
-      const bx = i % bw, by = (i / bw) | 0;
-      blocks.push(applyTransform(getBlock(d, nw, bx, by, B), xforms[i], B));
-    }
-
-    // Write shuffled blocks.
+    // Transform and write blocks in 1-pass.
     const rd = new Uint8ClampedArray(d.length);
+    const src32 = new Uint32Array(d.buffer, d.byteOffset, d.byteLength / 4);
+    const dst32 = new Uint32Array(rd.buffer, rd.byteOffset, rd.byteLength / 4);
+
     for (let i = 0; i < n; i++) {
-      const bx = i % bw, by = (i / bw) | 0;
-      putBlock(rd, nw, bx, by, blocks[perm[i]], B);
+      const S = perm[i], D = i;
+      const t = xforms[S];
+      const sbx = S % bw, sby = (S / bw) | 0;
+      const dbx = D % bw, dby = (D / bw) | 0;
+
+      for (let y = 0; y < B; y++) {
+        for (let x = 0; x < B; x++) {
+          const si = (sby * B + y) * nw + (sbx * B + x);
+          let px = src32[si];
+
+          px = applyColorTransform(px, t.inv, t.ch);
+
+          let cx = x, cy = y;
+          for (let r = 0; r < t.sp; r++) {
+            let nx = B - 1 - cy;
+            cy = cx; cx = nx;
+          }
+          if (t.fl) cx = B - 1 - cx;
+
+          const di = (dby * B + cy) * nw + (dbx * B + cx);
+          dst32[di] = px;
+        }
+      }
     }
 
     ctx.putImageData(new ImageData(rd, nw, ch), 0, 0);
@@ -310,19 +247,37 @@ const AZ = (() => {
     const perm = shuffle(n, rng);
     const inv = invert(perm);
 
-    // Read shuffled blocks.
-    const blocks = [];
-    for (let i = 0; i < n; i++) {
-      const bx = i % bw, by = (i / bw) | 0;
-      blocks.push(getBlock(d, w, bx, by, B));
-    }
-
-    // Reverse transforms.
+    // Reverse transforms and unshuffle blocks in 1-pass.
     const rd = new Uint8ClampedArray(d.length);
+    const src32 = new Uint32Array(d.buffer, d.byteOffset, d.byteLength / 4);
+    const dst32 = new Uint32Array(rd.buffer, rd.byteOffset, rd.byteLength / 4);
+
     for (let j = 0; j < n; j++) {
-      const restored = reverseTransform(blocks[inv[j]], xforms[j], B);
-      const bx = j % bw, by = (j / bw) | 0;
-      putBlock(rd, w, bx, by, restored, B);
+      const S = inv[j], D = j;
+      const t = xforms[j];
+      const sbx = S % bw, sby = (S / bw) | 0;
+      const dbx = D % bw, dby = (D / bw) | 0;
+      
+      const rot = (4 - t.sp) % 4;
+
+      for (let y = 0; y < B; y++) {
+        for (let x = 0; x < B; x++) {
+          const si = (sby * B + y) * w + (sbx * B + x);
+          let px = src32[si];
+
+          let cx = x, cy = y;
+          if (t.fl) cx = B - 1 - cx;
+          for (let r = 0; r < rot; r++) {
+            let nx = B - 1 - cy;
+            cy = cx; cx = nx;
+          }
+
+          px = reverseColorTransform(px, t.inv, t.ch);
+
+          const di = (dby * B + cy) * w + (dbx * B + cx);
+          dst32[di] = px;
+        }
+      }
     }
 
     // Crop to original size.
