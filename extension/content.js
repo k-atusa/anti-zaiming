@@ -130,11 +130,12 @@
   let timer = null;
   const obs = new MutationObserver(() => {
     if (!enabled) return;
-    clearTimeout(timer);
+    if (timer !== null) return;
     timer = setTimeout(() => {
+      timer = null;
       scanText();
       window.postMessage({ source: 'goodbye-ai-block-content', payload: { type: 'az-scan' } }, '*');
-    }, 750);
+    }, 250);
   });
   obs.observe(document.body, { childList: true, subtree: true, characterData: true });
 })();

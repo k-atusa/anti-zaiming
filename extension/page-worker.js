@@ -167,8 +167,11 @@
         }
       }
     }
-    clearTimeout(timer);
-    timer = setTimeout(scanImages, 500);
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      scanImages();
+    }, 250);
   });
   obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
 
