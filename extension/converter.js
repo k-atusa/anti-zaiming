@@ -1,5 +1,5 @@
 (() => {
-  // tab switching
+  // Handle switching between different UI tabs and panels
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -9,6 +9,7 @@
     });
   });
 
+  // Initialize UI element references and global state variables
   const drop = document.getElementById('dropzone');
   const fileIn = document.getElementById('fileInput');
   const seedIn = document.getElementById('seedInput');
@@ -20,6 +21,7 @@
   const items = [];
   const SUPPORTED = ['image/jpeg','image/png','image/webp'];
 
+  // Filter incoming files for images and add them to the processing queue
   function addFiles(files) {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
@@ -29,6 +31,7 @@
     updateUI();
   }
 
+  // Load image file into a canvas and detect any existing obfuscation signal
   function loadItem(item) {
     const r = new FileReader();
     r.onload = e => {
@@ -46,32 +49,86 @@
     r.readAsDataURL(item.file); render(item);
   }
 
-  function escapeHTML(str) {
-    return String(str).replace(/[&<>"']/g, m => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[m]));
-  }
-
+  // Safely construct and update DOM elements to reflect the item's current state
   function render(item) {
     if (!item.el) { item.el = document.createElement('div'); item.el.className = 'item'; grid.appendChild(item.el); }
     const dims = item.src ? `${item.src.width}×${item.src.height}` : '';
-    const safeName = escapeHTML(item.name);
-    const safeErr = escapeHTML(item.err || 'Error');
     
-    let badge = '';
-    if (item.status === 'loading') badge = '<span class="item-badge badge-wait">Loading</span>';
-    else if (item.status === 'processing') badge = '<span class="item-badge badge-wait">Processing</span>';
-    else if (item.status === 'done') badge = '<span class="item-badge badge-done">Done</span>';
-    else if (item.status === 'error') badge = `<span class="item-badge badge-err">${safeErr}</span>`;
-    else if (item.signal) badge = '<span class="item-badge badge-sig">Obfuscated</span>';
+    item.el.textContent = '';
     
-    item.el.innerHTML = `
-      <div class="item-head"><span class="item-name" title="${safeName}">${safeName}</span><span class="item-meta">${dims}</span>${badge}</div>
-      <div class="item-body"><div class="src"></div>${item.result?'<span class="arrow">→</span><div class="res"></div>':''}</div>
-      ${item.status==='done'?'<div class="item-foot"><button class="btn-sec dl">Download</button></div>':''}`;
-    if (item.src) { const t = thumb(item.src); item.el.querySelector('.src').appendChild(t); }
-    if (item.result) { const t = thumb(item.result); item.el.querySelector('.res').appendChild(t); }
-    const dl = item.el.querySelector('.dl'); if (dl) dl.onclick = () => downloadItem(item);
+    const head = document.createElement('div');
+    head.className = 'item-head';
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'item-name';
+    nameSpan.title = item.name;
+    nameSpan.textContent = item.name;
+    head.appendChild(nameSpan);
+    
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'item-meta';
+    metaSpan.textContent = dims;
+    head.appendChild(metaSpan);
+    
+    if (item.status === 'loading' || item.status === 'processing') {
+      const b = document.createElement('span');
+      b.className = 'item-badge badge-wait';
+      b.textContent = item.status === 'loading' ? 'Loading' : 'Processing';
+      head.appendChild(b);
+    } else if (item.status === 'done') {
+      const b = document.createElement('span');
+      b.className = 'item-badge badge-done';
+      b.textContent = 'Done';
+      head.appendChild(b);
+    } else if (item.status === 'error') {
+      const b = document.createElement('span');
+      b.className = 'item-badge badge-err';
+      b.textContent = item.err || 'Error';
+      head.appendChild(b);
+    } else if (item.signal) {
+      const b = document.createElement('span');
+      b.className = 'item-badge badge-sig';
+      b.textContent = 'Obfuscated';
+      head.appendChild(b);
+    }
+    
+    item.el.appendChild(head);
+    
+    const body = document.createElement('div');
+    body.className = 'item-body';
+    
+    const srcDiv = document.createElement('div');
+    srcDiv.className = 'src';
+    if (item.src) { srcDiv.appendChild(thumb(item.src)); }
+    body.appendChild(srcDiv);
+    
+    if (item.result) {
+      const arr = document.createElement('span');
+      arr.className = 'arrow';
+      arr.textContent = '→';
+      body.appendChild(arr);
+      
+      const resDiv = document.createElement('div');
+      resDiv.className = 'res';
+      resDiv.appendChild(thumb(item.result));
+      body.appendChild(resDiv);
+    }
+    
+    item.el.appendChild(body);
+    
+    if (item.status === 'done') {
+      const foot = document.createElement('div');
+      foot.className = 'item-foot';
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'btn-sec dl';
+      dlBtn.textContent = 'Download';
+      dlBtn.onclick = () => downloadItem(item);
+      foot.appendChild(dlBtn);
+      item.el.appendChild(foot);
+    }
   }
 
+  // Generate a downscaled thumbnail canvas for UI display
   function thumb(cv) {
     const t = document.createElement('canvas');
     const s = Math.min(160/cv.width, 80/cv.height, 1);
@@ -79,15 +136,17 @@
     t.getContext('2d').drawImage(cv, 0, 0, t.width, t.height); return t;
   }
 
+  // Update button states based on the current processing status of all items
   function updateUI() {
     btnConvert.disabled = !items.some(i => i.status !== 'loading');
     btnDlAll.style.display = items.some(i => i.status === 'done') ? '' : 'none';
     btnClear.style.display = items.length ? '' : 'none';
   }
 
+  // Update the global status message and its color class
   function setStatus(msg, cls) { statusEl.textContent = msg; statusEl.className = 'status'+(cls?' '+cls:''); }
 
-  // auto-detect: signal found → decode, else encode
+  // Process all queued items sequentially to obfuscate or deobfuscate them
   async function convertAll() {
     btnConvert.disabled = true;
     const seed = seedIn.value;
@@ -108,8 +167,10 @@
     updateUI();
   }
 
+  // Determine the appropriate file extension based on MIME type
   function getExt(t) { return {['image/jpeg']:'.jpg',['image/png']:'.png',['image/webp']:'.webp'}[t]||'.png'; }
 
+  // Trigger a browser download for the processed image result
   function downloadItem(item) {
     if (!item.result) return;
     const t = item.type === 'image/png' ? 'image/png' : 'image/webp';
@@ -121,10 +182,12 @@
     }, t, t === 'image/webp' ? 1.0 : undefined);
   }
 
+  // Sequentially download all successfully processed items
   async function downloadAll() {
     for (const item of items) { if (item.status==='done') { downloadItem(item); await new Promise(r=>setTimeout(r,300)); } }
   }
 
+  // Set up drag-and-drop, file selection, clipboard pasting, and main action buttons
   drop.addEventListener('click', () => fileIn.click());
   drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -136,15 +199,15 @@
   });
   btnConvert.addEventListener('click', convertAll);
   btnDlAll.addEventListener('click', downloadAll);
-  btnClear.addEventListener('click', () => { items.length=0; grid.innerHTML=''; btnDlAll.style.display='none'; btnClear.style.display='none'; btnConvert.disabled=true; setStatus(''); });
+  btnClear.addEventListener('click', () => { items.length=0; grid.textContent=''; btnDlAll.style.display='none'; btnClear.style.display='none'; btnConvert.disabled=true; setStatus(''); });
 
-  // -- text panel --
+  // Initialize text processing UI elements and status helper
   const txtIn = document.getElementById('txtInput');
   const txtOut = document.getElementById('txtOutput');
   const txtSt = document.getElementById('txtStatus');
   function setTxtSt(m,c) { txtSt.textContent=m; txtSt.className='status'+(c?' '+c:''); }
 
-  // auto-detect: AI!1(...) → decode, else encode
+  // Handle text obfuscation/deobfuscation and copy/clear actions
   document.getElementById('btnTxtConvert').addEventListener('click', async () => {
     const val = txtIn.value.trim();
     if (!val) { setTxtSt('No input','err'); return; }
@@ -157,10 +220,11 @@
   document.getElementById('btnTxtCopy').addEventListener('click', () => { navigator.clipboard.writeText(txtOut.value||txtIn.value).catch(()=>{}); });
   document.getElementById('btnTxtClear').addEventListener('click', () => { txtIn.value=''; txtOut.value=''; setTxtSt(''); });
 
-  // -- test panel --
+  // Initialize test panel logging function
   const log = document.getElementById('log');
   function addLog(msg) { log.textContent += msg + '\n'; }
 
+  // Generate a synthetic image canvas for testing purposes
   async function makeTestImage(text, c1, c2) {
     const c = document.createElement('canvas'); c.width = 200; c.height = 120;
     const ctx = c.getContext('2d');
@@ -175,6 +239,7 @@
     return c;
   }
 
+  // Execute a suite of tests to verify image and text processing functionality
   let testsRun = false;
   async function runTests() {
     if (testsRun) return;
@@ -200,7 +265,7 @@
     } catch (e) { addLog('✗ Error: ' + e.message); }
   }
 
-  // Hook test runner into tab click
+  // Trigger the test suite when the test panel tab is clicked
   document.querySelector('[data-tab="test-panel"]').addEventListener('click', runTests);
 
 })();
